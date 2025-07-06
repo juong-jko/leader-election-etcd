@@ -38,10 +38,6 @@ type Response struct {
 	Node   NodeData `json:"node"`
 }
 
-type LeaderRequest struct {
-	LeaderPort int `json:"value"`
-}
-
 const (
 	baseUrl = "http://127.0.0.1:2379/v2/"
 )
@@ -54,7 +50,7 @@ func (s *ServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *ServerHandler) SendLeaderRequest(prevExist bool) *http.Response {
+func (s *ServerHandler) SendLeaderRequest(prevExist bool) (*http.Response, error) {
 	// Create a new PUT request
 	leaderData := url.Values{}
 	leaderData.Set("value", strconv.Itoa(s.port))
@@ -64,26 +60,34 @@ func (s *ServerHandler) SendLeaderRequest(prevExist bool) *http.Response {
 	req, err := http.NewRequest(http.MethodPut, compareAndSwapURL, strings.NewReader(leaderData.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if err != nil {
-		log.Fatalf("Error creating request: %v", err)
+		log.Printf("Error creating request: %v\n", err)
+		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
 	compareAndSwapResp, err := s.httpClient.Do(req)
 	if err != nil {
-		log.Fatalf("Error sending PUT request: %v", err)
+		log.Printf("Error sending PUT request: %w\n", err)
+		return nil, fmt.Errorf("error sending PUT request: %w", err)
 	}
 
 	log.Printf("Compare and Swap Resp: %s\n", compareAndSwapResp.Status)
 
-	return compareAndSwapResp
+	return compareAndSwapResp, nil
 }
 
 func (s *ServerHandler) Run() {
+	ticker := time.NewTicker(10 * time.Second)
 	for {
 		switch s.role {
 		case Follower:
 			{
-				compareAndSwapResp := s.SendLeaderRequest(false)
+				compareAndSwapResp, err := s.SendLeaderRequest(false)
+				if err != nil {
+					continue
+				}
+
 				defer compareAndSwapResp.Body.Close()
+
 				if compareAndSwapResp.StatusCode == http.StatusCreated {
 					// Promoted to leader
 					s.role = Leader
@@ -94,23 +98,28 @@ func (s *ServerHandler) Run() {
 				resp, err := s.httpClient.Get(baseUrl + "keys/leader")
 				if err != nil {
 					log.Printf("Error: %v\n", err)
+					continue
 				}
+				defer resp.Body.Close()
 
 				var data Response
 				err = json.NewDecoder(resp.Body).Decode(&data)
 				if err != nil {
 					log.Printf("Error parsing JSON: %v\n", err)
+					continue
 				} else {
 					log.Printf("Status: %s\n", resp.Status)
 					log.Printf("Response: %v\n", data)
 					s.leaderPort, _ = strconv.Atoi(data.Node.Value)
 				}
 
-				defer resp.Body.Close()
 			}
 		case Leader:
 			{
-				resp := s.SendLeaderRequest(true)
+				resp, err := s.SendLeaderRequest(true)
+				if err != nil {
+					continue
+				}
 				defer resp.Body.Close()
 
 				// We may have lost leadership
@@ -122,7 +131,7 @@ func (s *ServerHandler) Run() {
 				log.Printf("Leader TTL Request Success: %s", resp.Status)
 			}
 		}
-		<-time.After(10 * time.Second)
+		<-ticker.C
 	}
 }
 
