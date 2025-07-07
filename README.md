@@ -44,15 +44,15 @@ The leader election logic is based on etcd's key-value store features, specifica
 
     * **Terminal 1:**
         ```sh
-        go run ./cmd/server 8080
+        go run main.go -port 8080
         ```
     * **Terminal 2:**
         ```sh
-        go run ./cmd/server 8081
+        go run main.go -port 8081
         ```
     * **Terminal 3:**
         ```sh
-        go run ./cmd/server 8082
+        go run main.go -port 8082
         ```
 
     The first node to start will likely become the leader. You will see log output indicating the role of each node.

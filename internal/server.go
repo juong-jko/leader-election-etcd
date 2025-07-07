@@ -21,6 +21,7 @@ const (
 type ServerHandler struct {
 	httpClient *http.Client
 	role       Role
+	etcdUrl    string
 
 	port       int
 	leaderPort int
@@ -38,10 +39,6 @@ type Response struct {
 	Node   NodeData `json:"node"`
 }
 
-const (
-	baseUrl = "http://127.0.0.1:2379/v2/"
-)
-
 func (s *ServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.role == Leader {
 		fmt.Fprintf(w, "I am the leader")
@@ -56,7 +53,7 @@ func (s *ServerHandler) SendLeaderRequest(prevExist bool) (*http.Response, error
 	leaderData.Set("value", strconv.Itoa(s.port))
 	leaderData.Set("ttl", strconv.Itoa(15))
 
-	compareAndSwapURL := baseUrl + fmt.Sprintf("keys/leader?prevExist=%v", prevExist)
+	compareAndSwapURL := s.etcdUrl + fmt.Sprintf("keys/leader?prevExist=%v", prevExist)
 	req, err := http.NewRequest(http.MethodPut, compareAndSwapURL, strings.NewReader(leaderData.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if err != nil {
@@ -95,7 +92,7 @@ func (s *ServerHandler) Run() {
 				}
 
 				log.Println("Fetching Info about leader")
-				resp, err := s.httpClient.Get(baseUrl + "keys/leader")
+				resp, err := s.httpClient.Get(s.etcdUrl + "keys/leader")
 				if err != nil {
 					log.Printf("Error: %v\n", err)
 					break
@@ -135,11 +132,12 @@ func (s *ServerHandler) Run() {
 	}
 }
 
-func NewServerHandler(port int) *ServerHandler {
+func NewServerHandler(port int, etcdUrl string) *ServerHandler {
 	handler := &ServerHandler{
 		httpClient: &http.Client{},
 		port:       port,
 		role:       Follower,
+		etcdUrl:    etcdUrl,
 	}
 
 	go handler.Run()
@@ -152,7 +150,7 @@ func (s *ServerHandler) Shutdown() {
 		return
 	}
 
-	deleteURL := baseUrl + "keys/leader"
+	deleteURL := s.etcdUrl + "keys/leader"
 	req, err := http.NewRequest(http.MethodDelete, deleteURL, nil)
 	if err != nil {
 		log.Printf("Error creating delete request: %v", err)
@@ -172,3 +170,4 @@ func (s *ServerHandler) Shutdown() {
 		log.Printf("Failed to release leader lock (status: %s)", resp.Status)
 	}
 }
+

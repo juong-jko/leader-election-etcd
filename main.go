@@ -2,36 +2,43 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
 	server "juong/http/internal"
 )
 
 func main() {
-	args := os.Args[1:]
+	// Define command-line flags
+	port := flag.Int("port", 8080, "Port to listen on")
+	etcdURL := flag.String("etcd-url", "http://127.0.0.1:2379/v2/", "Etcd URL")
+	flag.Parse()
+
+	// Create a context that can be cancelled
 	ctx, cancelCtx := context.WithCancel(context.Background())
 
-	port, _ := strconv.Atoi(args[0])
-	srv := server.NewServerHandler(port)
+	// Create a new server handler
+	srv := server.NewServerHandler(*port, *etcdURL)
 
+	// Create a new HTTP server
 	httpServer := &http.Server{
-		Addr:    ":" + strconv.Itoa(port),
+		Addr:    ":" + flag.Args()[0],
 		Handler: srv,
 	}
 
+	// Start the server in a new goroutine
 	go func() {
-		log.Println("Starting server")
+		log.Println("Starting server on port", *port)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("ListenAndServe failed: %v", err)
 		}
 	}()
 
-	// Wait for termination signal
+	// Wait for a termination signal
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 	<-signalChan
