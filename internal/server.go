@@ -66,8 +66,8 @@ func (s *ServerHandler) SendLeaderRequest(prevExist bool) (*http.Response, error
 
 	compareAndSwapResp, err := s.httpClient.Do(req)
 	if err != nil {
-		log.Printf("Error sending PUT request: %w\n", err)
-		return nil, fmt.Errorf("error sending PUT request: %w", err)
+		log.Printf("Error sending PUT request: %v\n", err)
+		return nil, fmt.Errorf("error sending PUT request: %v", err)
 	}
 
 	log.Printf("Compare and Swap Resp: %s\n", compareAndSwapResp.Status)
@@ -83,7 +83,7 @@ func (s *ServerHandler) Run() {
 			{
 				compareAndSwapResp, err := s.SendLeaderRequest(false)
 				if err != nil {
-					continue
+					break
 				}
 
 				defer compareAndSwapResp.Body.Close()
@@ -98,7 +98,7 @@ func (s *ServerHandler) Run() {
 				resp, err := s.httpClient.Get(baseUrl + "keys/leader")
 				if err != nil {
 					log.Printf("Error: %v\n", err)
-					continue
+					break
 				}
 				defer resp.Body.Close()
 
@@ -106,7 +106,7 @@ func (s *ServerHandler) Run() {
 				err = json.NewDecoder(resp.Body).Decode(&data)
 				if err != nil {
 					log.Printf("Error parsing JSON: %v\n", err)
-					continue
+					break
 				} else {
 					log.Printf("Status: %s\n", resp.Status)
 					log.Printf("Response: %v\n", data)
@@ -118,7 +118,7 @@ func (s *ServerHandler) Run() {
 			{
 				resp, err := s.SendLeaderRequest(true)
 				if err != nil {
-					continue
+					break
 				}
 				defer resp.Body.Close()
 
@@ -126,7 +126,7 @@ func (s *ServerHandler) Run() {
 				if resp.StatusCode != http.StatusOK {
 					log.Printf("Failed to refresh leader TTL (status: %s). Demoting to follower.\n", resp.Status)
 					s.role = Follower
-					continue
+					break
 				}
 				log.Printf("Leader TTL Request Success: %s", resp.Status)
 			}
@@ -135,7 +135,7 @@ func (s *ServerHandler) Run() {
 	}
 }
 
-func NewServerHandler(port int) http.Handler {
+func NewServerHandler(port int) *ServerHandler {
 	handler := &ServerHandler{
 		httpClient: &http.Client{},
 		port:       port,
@@ -145,4 +145,30 @@ func NewServerHandler(port int) http.Handler {
 	go handler.Run()
 
 	return handler
+}
+
+func (s *ServerHandler) Shutdown() {
+	if s.role != Leader {
+		return
+	}
+
+	deleteURL := baseUrl + "keys/leader"
+	req, err := http.NewRequest(http.MethodDelete, deleteURL, nil)
+	if err != nil {
+		log.Printf("Error creating delete request: %v", err)
+		return
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Error sending delete request: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		log.Println("Successfully released leader lock.")
+	} else {
+		log.Printf("Failed to release leader lock (status: %s)", resp.Status)
+	}
 }
