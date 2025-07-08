@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	server "juong/http/internal"
@@ -15,18 +17,21 @@ import (
 func main() {
 	// Define command-line flags
 	port := flag.Int("port", 8080, "Port to listen on")
-	etcdURL := flag.String("etcd-url", "http://127.0.0.1:2379/v2/", "Etcd URL")
+	etcdEndpoints := flag.String("etcd-endpoints", "127.0.0.1:2379", "Comma-separated list of etcd endpoints")
 	flag.Parse()
 
 	// Create a context that can be cancelled
 	ctx, cancelCtx := context.WithCancel(context.Background())
 
 	// Create a new server handler
-	srv := server.NewServerHandler(*port, *etcdURL)
+	srv, err := server.NewServerHandler(*port, strings.Split(*etcdEndpoints, ","))
+	if err != nil {
+		log.Fatalf("Failed to create server handler: %v", err)
+	}
 
 	// Create a new HTTP server
 	httpServer := &http.Server{
-		Addr:    ":" + flag.Args()[0],
+		Addr:    fmt.Sprintf(":%d", *port),
 		Handler: srv,
 	}
 
